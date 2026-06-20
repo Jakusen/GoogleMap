@@ -4,6 +4,7 @@
 import streamlit as st
 import anthropic
 import os
+from personas import PERSONAS, USER_BACKGROUND, build_system_prompt
 
 st.set_page_config(
     page_title="圆桌讨论",
@@ -13,11 +14,7 @@ st.set_page_config(
 
 MODEL = "claude-sonnet-4-6"
 
-USER_BACKGROUND = """
-你的对话对象是Jakusen，长居东京墨田区。在房产公司BV-ESTATE负责180+套物业管理、短租、装修PM。同时推进艺术交易项目（清水）和书法展项目（协助篆刻家韩老师，小红书账号「印边小記」）。学习篆刻，备考宅建士（2026年10月）。持有DOGE。战略判断强，自主计划偏弱。请在回应时自然融入这个背景，让建议贴近他的实际情境。
-""".strip()
-
-PERSONAS = [
+_PERSONAS_BLOCK_REMOVED = [
     {
         "id": 1,
         "name": "查理·芒格 Charlie Munger",
@@ -213,35 +210,38 @@ AI视角：人类偏差×AI规模=非线性风险。
 每次发言不超过120字，用中文回应。""",
     },
 ]
-
-
-def build_system_prompt(persona: dict) -> str:
-    return persona["system"] + "\n\n【用户背景】\n" + USER_BACKGROUND
+del _PERSONAS_BLOCK_REMOVED
 
 
 def init_state():
     defaults = {
         "topic": "",
-        "roundtable_speeches": [],  # list of (persona_dict, text)
-        "follow_ups": [],           # list of (persona_dict, question, text)
+        "roundtable_speeches": [],
+        "follow_ups": [],
         "roundtable_done": False,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 
-def stream_persona(persona: dict, messages: list):
+def stream_persona(persona: dict, messages: list, usage_out: dict):
     api_key = st.session_state.get("api_key", "")
     client = anthropic.Anthropic(api_key=api_key)
     with client.messages.stream(
         model=MODEL,
         max_tokens=400,
+        temperature=persona.get("temperature", 0.7),
         system=build_system_prompt(persona),
         messages=messages,
     ) as stream:
         for text in stream.text_stream:
             yield text
+        final = stream.get_final_message()
+        usage_out["input_tokens"] = final.usage.input_tokens
+        usage_out["output_tokens"] = final.usage.output_tokens
 
 
 def get_roundtable_messages(topic: str, prior_speeches: list) -> list:
@@ -291,6 +291,22 @@ if api_key:
 else:
     st.info("请在左侧边栏输入 Anthropic API Key 以开始")
     st.stop()
+
+# ── Token 计数器（侧边栏）────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### 本次 Token 用量")
+    inp = st.session_state.get("total_input_tokens", 0)
+    out = st.session_state.get("total_output_tokens", 0)
+    cost = (inp * 3 + out * 15) / 1_000_000
+    col_a, col_b = st.columns(2)
+    col_a.metric("Input", f"{inp:,}")
+    col_b.metric("Output", f"{out:,}")
+    st.caption(f"预估费用：${cost:.4f} USD")
+    if st.button("重置计数", use_container_width=True):
+        st.session_state.total_input_tokens = 0
+        st.session_state.total_output_tokens = 0
+        st.rerun()
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🧠 圆桌讨论")
@@ -351,8 +367,11 @@ if not st.session_state.roundtable_done:
     )
     with st.chat_message("assistant", avatar=persona["emoji"]):
         st.markdown(f"**{persona['name']}**")
-        response = st.write_stream(stream_persona(persona, messages))
+        usage = {}
+        response = st.write_stream(stream_persona(persona, messages, usage))
     st.session_state.roundtable_speeches.append((persona, response))
+    st.session_state.total_input_tokens += usage.get("input_tokens", 0)
+    st.session_state.total_output_tokens += usage.get("output_tokens", 0)
     if len(st.session_state.roundtable_speeches) >= len(PERSONAS):
         st.session_state.roundtable_done = True
     st.rerun()
@@ -431,6 +450,9 @@ if send and question:
         )
     with st.chat_message("assistant", avatar=selected_persona["emoji"]):
         st.markdown(f"**{selected_persona['name']}**")
-        response = st.write_stream(stream_persona(selected_persona, messages))
+        usage = {}
+        response = st.write_stream(stream_persona(selected_persona, messages, usage))
     st.session_state.follow_ups.append((selected_persona, question, response))
+    st.session_state.total_input_tokens += usage.get("input_tokens", 0)
+    st.session_state.total_output_tokens += usage.get("output_tokens", 0)
     st.rerun()

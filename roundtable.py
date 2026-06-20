@@ -4,15 +4,12 @@
 import os
 import sys
 import anthropic
+from personas import PERSONAS, build_system_prompt
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 MODEL = "claude-sonnet-4-6"
 
-USER_BACKGROUND = """
-你的对话对象是Jakusen，长居东京墨田区。在房产公司BV-ESTATE负责180+套物业管理、短租、装修PM。同时推进艺术交易项目（清水）和书法展项目（协助篆刻家韩老师，小红书账号「印边小記」）。学习篆刻，备考宅建士（2026年10月）。持有DOGE。战略判断强，自主计划偏弱。请在回应时自然融入这个背景，让建议贴近他的实际情境。
-""".strip()
-
-PERSONAS = [
+_REMOVE = [
     {
         "id": 1,
         "name": "查理·芒格 Charlie Munger",
@@ -208,10 +205,7 @@ AI视角：人类偏差×AI规模=非线性风险。
 每次发言不超过120字，用中文回应。""",
     },
 ]
-
-
-def build_system_prompt(persona: dict) -> str:
-    return persona["system"] + "\n\n【用户背景】\n" + USER_BACKGROUND
+del _REMOVE
 
 
 def stream_response(messages: list, system: str) -> str:
