@@ -395,6 +395,46 @@ if not st.session_state.roundtable_done:
         st.session_state.roundtable_done = True
     st.rerun()
 
+# ── Export memo ───────────────────────────────────────────────────────────────
+def build_memo() -> str:
+    from datetime import date
+    lines = [
+        f"# 圆桌讨论 Memo",
+        f"**议题：** {st.session_state.topic}",
+        f"**日期：** {date.today()}",
+        "",
+        "---",
+        "",
+    ]
+    for persona, text in st.session_state.roundtable_speeches:
+        lines += [f"## {persona['emoji']} {persona['name']}", "", text, ""]
+    if st.session_state.follow_ups:
+        lines += ["---", "", "## 追问记录", ""]
+        for persona, question, text in st.session_state.follow_ups:
+            lines += [
+                f"**追问 {persona['emoji']} {persona['name']}：** {question}",
+                "",
+                text,
+                "",
+            ]
+    return "\n".join(lines)
+
+with st.expander("📋 导出对话 Memo"):
+    memo_text = build_memo()
+    st.download_button(
+        label="下载 .md 文件",
+        data=memo_text,
+        file_name=f"roundtable_{st.session_state.topic[:20]}.md",
+        mime="text/markdown",
+        use_container_width=True,
+    )
+    st.text_area(
+        "或直接复制",
+        value=memo_text,
+        height=200,
+        label_visibility="collapsed",
+    )
+
 # ── Follow-up section (only after roundtable completes) ───────────────────────
 st.divider()
 st.markdown("#### 追问")
